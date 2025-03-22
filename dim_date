@@ -1,0 +1,41 @@
+let
+    // Definir fechas de inicio y fin
+    StartDate = #date(2022, 1, 1),
+    EndDate = DateTime.Date(DateTime.LocalNow()),  // Fecha actual
+
+    // Generar lista de fechas
+    Fechas = List.Dates(StartDate, Duration.Days(EndDate - StartDate) + 1, #duration(1, 0, 0, 0)),
+
+    // Convertir a tabla
+    Tabla = Table.FromList(Fechas, Splitter.SplitByNothing(), {"Fecha"}, type date),
+
+    // Crear columnas personalizadas
+    FormatoFecha = Table.AddColumn(Tabla, "FormatoFecha", each 
+        Text.From(Date.Day([Fecha])) & "-" & 
+        Date.ToText([Fecha], "MMM", "en-US") & "-" & 
+        Text.End(Text.From(Date.Year([Fecha])), 2), type text),
+
+    Dia = Table.AddColumn(FormatoFecha, "Dia", each Date.Day([Fecha]), Int64.Type),
+    MesNombre = Table.AddColumn(Dia, "MesNombre", each Date.MonthName([Fecha], "en-US"), type text),
+    MesNumero = Table.AddColumn(MesNombre, "MesNumero", each Date.Month([Fecha]), Int64.Type),
+
+    // Eliminar columna original
+    ResultadoFinal = Table.RemoveColumns(MesNumero, {"Fecha"}),
+    #"Tipo cambiado" = Table.TransformColumnTypes(ResultadoFinal,{{"FormatoFecha", type date}}),
+    #"Columnas con nombre cambiado" = Table.RenameColumns(#"Tipo cambiado",{{"FormatoFecha", "Date"}, {"Dia", "Day"}, {"MesNombre", "Month Name"}, {"MesNumero", "Month"}}),
+    #"Extracted First Characters" = Table.TransformColumns(#"Columnas con nombre cambiado", {{"Month Name", each Text.Start(_, 3), type text}}),
+    #"Inserted Year" = Table.AddColumn(#"Extracted First Characters", "Year", each Date.Year([Date]), Int64.Type),
+    #"Duplicated Column" = Table.DuplicateColumn(#"Inserted Year", "Month Name", "Month Name - Copy"),
+    #"Reordered Columns" = Table.ReorderColumns(#"Duplicated Column",{"Date", "Day", "Month Name", "Month", "Year", "Month Name - Copy"}),
+    #"Merged Columns" = Table.CombineColumns(Table.TransformColumnTypes(#"Reordered Columns", {{"Year", type text}}, "en-US"),{"Month Name - Copy", "Year"},Combiner.CombineTextByDelimiter(" ", QuoteStyle.None),"Merged"),
+    #"Renamed Columns" = Table.RenameColumns(#"Merged Columns",{{"Merged", "Month-year"}}),
+    #"Inserted Year1" = Table.AddColumn(#"Renamed Columns", "Year", each Date.Year([Date]), Int64.Type),
+
+    GroupByYear = Table.Group(#"Inserted Year1", {"Year"}, {{"AllRows", each Table.AddIndexColumn(_, "Yearly Row Index", 1, 1, Int64.Type)}}),
+    ExpandTable = Table.ExpandTableColumn(GroupByYear, "AllRows", {"Date", "Day", "Month Name", "Month", "Month-year", "Yearly Row Index"}),
+
+    AddX = Table.AddColumn(ExpandTable, "X", each Number.Mod([Yearly Row Index] - 1, 30) + 1, Int64.Type),
+    AddY = Table.AddColumn(AddX, "Y", each Number.IntegerDivide([Yearly Row Index] - 1, 30) + 1, Int64.Type),
+    #"Changed Type1" = Table.TransformColumnTypes(AddY,{{"Date", type date}}),
+    #"Personalizada agregada" = Table.AddColumn(#"Changed Type1", "Campaign", each if [Date] < #date(2022, 4, 1) then "21-22"
+        else if [Date] < #date(2023, 4, 1
